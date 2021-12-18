@@ -33,7 +33,7 @@ npm install @simplyhexagonal/function-queue
 ## Usage
 
 ```ts
-import FunctionQueue from '@simplyhexagonal/function-queue';
+import { FunctionQueue } from '@simplyhexagonal/function-queue';
 
 interface MyFnPayload {
   greeting: string;
