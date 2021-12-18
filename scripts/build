@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-MODULE_NAME=package
-GLOBAL_NAME=Package
+MODULE_NAME=function-queue
+GLOBAL_NAME=FunctionQueue
 
 rm -rf dist/*
 esbuild src/index.ts --bundle --target=chrome60,firefox60,safari12,edge18 \
@@ -10,6 +10,6 @@ esbuild src/index.ts --bundle --target=chrome60,firefox60,safari12,edge18 \
   --outfile=dist/$MODULE_NAME.min.js --minify --format=iife --global-name=$GLOBAL_NAME \
   && tsc -d --emitDeclarationOnly --rootDir src --outDir dist \
   && mv dist/index.d.ts dist/$MODULE_NAME.d.ts \
-  && refup dist/$MODULE_NAME.js $GLOBAL_NAME \
-  && refup dist/$MODULE_NAME.min.js $GLOBAL_NAME \
+  && refup dist/$MODULE_NAME.js $GLOBAL_NAME --no-default \
+  && refup dist/$MODULE_NAME.min.js $GLOBAL_NAME --no-default \
   || exit 1
