@@ -1,4 +1,4 @@
-var Package = (() => {
+var FunctionQueue = (() => {
   var __defProp = Object.defineProperty;
   var __getOwnPropSymbols = Object.getOwnPropertySymbols;
   var __hasOwnProp = Object.prototype.hasOwnProperty;
@@ -30,7 +30,7 @@ var Package = (() => {
   });
 
   // package.json
-  var version = "1.0.0";
+  var version = "1.1.0";
 
   // src/index.ts
   var defaultOptions = {
@@ -139,5 +139,5 @@ var Package = (() => {
   FunctionSyncQueue.version = version;
   return src_exports;
 })();
-//# sourceMappingURL=package.js.map
-'undefined'!=typeof module&&(module.exports=Package.default),'undefined'!=typeof window&&(Package=Package.default);
+//# sourceMappingURL=function-queue.js.map
+'undefined'!=typeof module&&(module.exports=FunctionQueue),'undefined'!=typeof window&&(FunctionQueue=FunctionQueue);
