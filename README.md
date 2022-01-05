@@ -32,6 +32,8 @@ npm install @simplyhexagonal/function-queue
 
 ## Usage
 
+Queue multiple payloads and wait for all to complete:
+
 ```ts
 import FunctionQueue, {
   QueueableFunction,
@@ -42,34 +44,98 @@ interface MyFnPayload {
 }
 
 const myFn: QueueableFunction<MyFnPayload, string> = async ({greeting}) => {
-  const result = `${greeting.toUpperCase()} World!`;
+  const fnResult = `${greeting.toUpperCase()} World!`;
 
-  console.log(result);
+  console.log(fnResult);
 
-  return result;
+  return fnResult;
 };
 
-const fnQueue = new FunctionQueue();
+const fnQueue = new FunctionQueue(
+  myFn,
+  {
+    waitTimeBetweenRuns: 100, //default
+    getResultTimeout: 60000, //default
+    maxRetries: 1, //default
+    cleanupResultsOlderThan: 60000, //default
+  }
+);
 
 fnQueue.queuePayload({greeting: 'Hello'});
 fnQueue.queuePayload({greeting: 'Hey'});
 fnQueue.queuePayload({greeting: 'Hi'});
 fnQueue.queuePayload({greeting: 0 as any as string}); // This is bad and would obviously fail at runtime
 
-const results = await fnQ.processQueue();
+fnQ.processQueue();
+
+const results = await fnQ.processQueuePromise;
 
 console.log(results);
 
 // [
-//   { duration: 138, result: 'HELLO World!' },
-//   { duration: 104, result: 'HEY World!' }
-//   { duration: 104, result: 'HI World!' },
+//   { duration: 138, result: 'HELLO World!', ... },
+//   { duration: 104, result: 'HEY World!', ... }
+//   { duration: 104, result: 'HI World!', ... },
 //   {
 //      duration: 202,
 //      error: TypeError: greeting.toUpperCase is not a function
+//      ...
 //   }
 // ]
 ```
+
+Queue multiple payloads but only get the results you need:
+
+```ts
+import FunctionQueue, {
+  QueueableFunction,
+} from '@simplyhexagonal/function-queue';
+
+interface MyFnPayload {
+  greeting: string;
+}
+
+const myFn: QueueableFunction<MyFnPayload, string> = async ({greeting}) => {
+  const fnResult = `${greeting.toUpperCase()} World!`;
+
+  console.log(fnResult);
+
+  return fnResult;
+};
+
+const fnQueue = new FunctionQueue(myFn);
+
+const payloadId1 = fnQueue.queuePayload({greeting: 'Hello'});
+const payloadId2 = fnQueue.queuePayload({greeting: 0 as any as string}); // This is bad and would obviously fail at runtime
+
+fnQ.processQueue();
+
+let result;
+
+result = await fnQ.getResult(payloadId2);
+
+console.log(result);
+
+//   {
+//      duration: 202,
+//      error: TypeError: greeting.toUpperCase is not a function
+//      ...
+//   }
+
+result = await fnQ.getResult(payloadId1);
+
+console.log(result);
+
+//   { duration: 138, result: 'HELLO World!', ... },
+```
+
+## A note regarding cleaning up the queue results
+
+Results that have an `endTimestamp` older than the `cleanupResultsOlderThan` option will be cleaned
+up automatically _only_ when `fnQ.processQueue()` or `fnQ.getResult(...)` are called.
+
+If you find results getting stuck in memory for too long and would like to clean them up either
+manually or periodically, you can use the `fnQ.cleanupResults()` method.
 
 ## Contributing
 

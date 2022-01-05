@@ -53,6 +53,7 @@ class FunctionQueue<O = {[k: string]: any}, R = void> {
   private _processing: Boolean = false;
 
   public results: FunctionQueueResult<R>[] = [];
+  public processQueuePromise: Promise<FunctionQueueResult<R>[]> = Promise.resolve([]);
 
   constructor(
     fn: QueueableFunction<O, R>,
@@ -148,24 +149,36 @@ class FunctionQueue<O = {[k: string]: any}, R = void> {
     this._processing = false;
   }
 
+  public cleanupResults(): void {
+    this.results = this.results.filter(
+      (r) => {
+        const age = (Date.now() - r.endTimestamp);
+
+        return age < this._options.cleanupResultsOlderThan;
+      }
+    );
+  }
+
   public async processQueue(): Promise<void> {
     if (this._processing) {
       return;
     }
 
-    this._processQueue();
+    this.cleanupResults();
+
+    this.processQueuePromise = this._processQueue().then(() => this.results);
   }
 
   public async getResult(id: string): Promise<FunctionQueueResult<R>> {
-    this.results = this.results.filter(r => Date.now() - r.endTimestamp < this._options.getResultTimeout);
+    this.cleanupResults();
 
-    let result = this.results.find(r => r.id === id);
+    let result = this.results.find((r) => r.id === id);
 
     const startTimestamp = Date.now();
 
     while (!result && (Date.now() - startTimestamp) < this._options.getResultTimeout) {
       await sleep(this._options.waitTimeBetweenRuns);
-      result = this.results.find(r => r.id === id);
+      result = this.results.find((r) => r.id === id);
     }
 
     if (!result) {
@@ -182,7 +195,7 @@ class FunctionQueue<O = {[k: string]: any}, R = void> {
       };
     }
 
-    this.results = this.results.filter(r => r.id !== id);
+    this.results = this.results.filter((r) => r.id !== id);
 
     return result;
   }

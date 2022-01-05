@@ -54,7 +54,7 @@ describe('Function Queue', () => {
 
     expect(durations[0]).toBeUndefined();
 
-    await sleep(700);
+    await fnQ.processQueuePromise;
 
     console.log(results);
     console.log(durations);
@@ -133,5 +133,48 @@ describe('Function Queue', () => {
     console.log(result);
 
     expect((/timeout of 10ms/).test(result.error.message)).toBe(true);
+  });
+
+  it('can cleanup after itself', async () => {
+    const fnQ = new FunctionQueue(
+      theFn,
+      {
+        cleanupResultsOlderThan: 100,
+      }
+    );
+
+    fnQ.queuePayload({greeting: 'Wink'});
+    fnQ.queuePayload({greeting: 'Wink'});
+    fnQ.queuePayload({greeting: 'Wink'});
+
+    fnQ.processQueue();
+
+    const results = await fnQ.processQueuePromise;
+
+    console.log(results);
+
+    expect(fnQ.results.length).toBe(3);
+
+    await sleep(110);
+
+    fnQ.processQueue();
+
+    expect(fnQ.results.length).toBe(0);
+
+    fnQ.queuePayload({greeting: 'Wink'});
+    fnQ.queuePayload({greeting: 'Wink'});
+    fnQ.queuePayload({greeting: 'Wink'});
+
+    fnQ.processQueue();
+
+    await fnQ.processQueuePromise;
+
+    expect(fnQ.results.length).toBe(3);
+
+    await sleep(110);
+
+    fnQ.cleanupResults();
+
+    expect(fnQ.results.length).toBe(0);
   });
 });
