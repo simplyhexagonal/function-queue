@@ -277,6 +277,7 @@ var FunctionQueue = (() => {
       this._queue = [];
       this._processing = false;
       this.results = [];
+      this.processQueuePromise = Promise.resolve([]);
       this._tryFn = async (id, payload, startTimestamp) => {
         let retries = 0;
         let finalResult;
@@ -338,14 +339,21 @@ var FunctionQueue = (() => {
       }
       this._processing = false;
     }
+    cleanupResults() {
+      this.results = this.results.filter((r) => {
+        const age = Date.now() - r.endTimestamp;
+        return age < this._options.cleanupResultsOlderThan;
+      });
+    }
     async processQueue() {
       if (this._processing) {
         return;
       }
-      this._processQueue();
+      this.cleanupResults();
+      this.processQueuePromise = this._processQueue().then(() => this.results);
     }
     async getResult(id) {
-      this.results = this.results.filter((r) => Date.now() - r.endTimestamp < this._options.getResultTimeout);
+      this.cleanupResults();
       let result = this.results.find((r) => r.id === id);
       const startTimestamp = Date.now();
       while (!result && Date.now() - startTimestamp < this._options.getResultTimeout) {

@@ -29,10 +29,12 @@ declare class FunctionQueue<O = {
     private _options;
     private _processing;
     results: FunctionQueueResult<R>[];
+    processQueuePromise: Promise<FunctionQueueResult<R>[]>;
     constructor(fn: QueueableFunction<O, R>, options?: Partial<FunctionQueueOptions>);
     queuePayload(payload: O): PayloadId;
     private _tryFn;
     private _processQueue;
+    cleanupResults(): void;
     processQueue(): Promise<void>;
     getResult(id: string): Promise<FunctionQueueResult<R>>;
 }
