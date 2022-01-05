@@ -1,45 +1,62 @@
+import ShortUniqueId from 'short-unique-id';
+
 // @ts-ignore
 import { version } from '../package.json';
 
 type milliseconds = number;
+
+export type PayloadId = string;
 
 export type QueueableFunction<O = {[k: string]: any}, R = void> = (options: O) => Promise<R>;
 
 export type QueueableSyncFunction<O = {[k: string]: any}, R = void> = (options: O) => R;
 
 export interface FunctionQueueResult<R = void> {
+  id: PayloadId;
   duration: milliseconds;
+  startTimestamp: number;
+  endTimestamp: number;
   result?: R;
   error?: any;
 };
 
 export interface FunctionQueueOptions {
   waitTimeBetweenRuns: milliseconds;
+  getResultTimeout: milliseconds;
   maxRetries: number;
+  cleanupResultsOlderThan: milliseconds;
 }
+
+interface FunctionQueueEntry<O = {[k: string]: any}, R = void> {
+  id: PayloadId;
+  payload: O;
+  result?: FunctionQueueResult<R>;
+}
+
+const uid = new ShortUniqueId({length: 8});
 
 const defaultOptions: FunctionQueueOptions = {
   waitTimeBetweenRuns: 100,
+  getResultTimeout: 60000,
   maxRetries: 1,
+  cleanupResultsOlderThan: 60000,
 };
 
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-const syncSleep = (ms: number) => {
-    const end = Date.now() + ms;
-    while (Date.now() < end) continue;
-}
+const sleep = (ms: milliseconds) => new Promise(resolve => setTimeout(resolve, ms));
 
 export class FunctionQueue<O = {[k: string]: any}, R = void> {
   static version = version;
 
   private _fn: QueueableFunction<O, R>;
-  private _queue: O[] = [];
+  private _queue: FunctionQueueEntry<O, R>[] = [];
   private _options: FunctionQueueOptions;
+  private _processing: Boolean = false;
+
+  public results: FunctionQueueResult<R>[] = [];
 
   constructor(
     fn: QueueableFunction<O, R>,
-    options?: FunctionQueueOptions,
+    options?: Partial<FunctionQueueOptions>,
   ) {
     this._fn = fn;
     this._options = {
@@ -48,149 +65,125 @@ export class FunctionQueue<O = {[k: string]: any}, R = void> {
     };
   }
 
-  public queuePayload(payload: O) {
-    this._queue.push(payload);
+  public queuePayload(payload: O): PayloadId {
+    const id: PayloadId = uid();
+
+    this._queue.push({payload, id});
+
+    return id;
   }
 
-  private _tryFn = async (payload: O): Promise<FunctionQueueResult<R>> => {
+  private _tryFn = async (id: string, payload: O, startTimestamp: number): Promise<FunctionQueueResult<R>> => {
     let retries = 0;
 
-    let result;
+    let finalResult: FunctionQueueResult<R> | undefined;
 
-    while ((!result || (result as any).error) && retries <= this._options.maxRetries) {
+    while ((!finalResult || (finalResult as any).error) && retries <= this._options.maxRetries) {
       retries++;
 
       try {
         await sleep(this._options.waitTimeBetweenRuns);
 
-        result = {
-          duration: 0,
-          result: await this._fn(payload),
+        const fnResult = await this._fn(payload);
+        const endTimestamp = Date.now();
+        const duration = endTimestamp - startTimestamp;
+
+        finalResult = {
+          id,
+          duration,
+          startTimestamp,
+          endTimestamp,
+          result: fnResult,
         };
       } catch (error) {
-        result = {
-          duration: 0,
+        const endTimestamp = Date.now();
+        const duration = endTimestamp - startTimestamp;
+
+        finalResult = {
+          id,
+          duration,
+          startTimestamp,
+          endTimestamp,
           error,
         };
       }
     }
 
-    return result as FunctionQueueResult<R>;
+    return finalResult as FunctionQueueResult<R>;
   }
 
-  public async processQueue(): Promise<FunctionQueueResult<R>[]> {
-    const results: FunctionQueueResult<R>[] = [];
+  private async _processQueue(): Promise<void> {
+    this._processing = true;
 
-    let startTime;
-    let endTime;
+    let entry: FunctionQueueEntry<O, R>;
 
-    let payload: O;
+    const startTimestamp = Date.now();
 
-    while (payload = this._queue.shift() as O) {
-      startTime = Date.now();
+    while (entry = this._queue.shift() as FunctionQueueEntry<O, R>) {
+      const { payload, id } = entry;
+
       try {
-        const result = await this._tryFn(payload);
-        endTime = Date.now();
+        const result = await this._tryFn(id, payload, startTimestamp);
 
-        results.push(
+        this.results.push(
           {
             ...result,
-            duration: endTime - startTime,
           }
         );
       } catch (error) {
-        endTime = Date.now();
-        results.push(
+        const endTimestamp = Date.now();
+
+        this.results.push(
           {
-            duration: endTime - startTime,
+            id,
+            startTimestamp,
+            duration: endTimestamp - startTimestamp,
+            endTimestamp,
             error,
           }
         );
       }
     }
 
-    return results;
-  }
-}
-
-export class FunctionSyncQueue<O = {[k: string]: any}, R = void> {
-  static version = version;
-
-  private _fn: QueueableSyncFunction<O, R>;
-  private _queue: O[] = [];
-  private _options: FunctionQueueOptions;
-
-  constructor(
-    fn: QueueableSyncFunction<O, R>,
-    options?: FunctionQueueOptions,
-  ) {
-    this._fn = fn;
-    this._options = {
-      ...defaultOptions,
-      ...(options || {}),
-    };
+    this._processing = false;
   }
 
-  public queuePayload(payload: O) {
-    this._queue.push(payload);
-  }
-
-  private _tryFn = (payload: O): FunctionQueueResult<R> => {
-    let retries = 0;
-
-    let result;
-
-    while ((!result || (result as any).error) && retries <= this._options.maxRetries) {
-      retries++;
-
-      try {
-        syncSleep(this._options.waitTimeBetweenRuns);
-
-        result = {
-          duration: 0,
-          result: this._fn(payload),
-        };
-      } catch (error) {
-        result = {
-          duration: 0,
-          error,
-        };
-      }
+  public async processQueue(): Promise<void> {
+    if (this._processing) {
+      return;
     }
 
-    return result as FunctionQueueResult<R>;
+    this._processQueue();
   }
 
-  public processQueue(): FunctionQueueResult<R>[] {
-    const results: FunctionQueueResult<R>[] = [];
+  public async getResult(id: string): Promise<FunctionQueueResult<R>> {
+    this.results = this.results.filter(r => Date.now() - r.endTimestamp < this._options.getResultTimeout);
 
-    let startTime;
-    let endTime;
+    let result = this.results.find(r => r.id === id);
 
-    let payload: O;
+    const startTimestamp = Date.now();
 
-    while (payload = this._queue.shift() as O) {
-      startTime = Date.now();
-      try {
-        const result = this._tryFn(payload);
-        endTime = Date.now();
-        results.push(
-          {
-            ...result,
-            duration: endTime - startTime,
-          }
-        );
-      } catch (error) {
-        endTime = Date.now();
-        results.push(
-          {
-            duration: endTime - startTime,
-            error,
-          }
-        );
-      }
+    while (!result && (Date.now() - startTimestamp) < this._options.getResultTimeout) {
+      await sleep(this._options.waitTimeBetweenRuns);
+      result = this.results.find(r => r.id === id);
     }
 
-    return results;
+    if (!result) {
+      const endTimestamp = Date.now();
+
+      return {
+        id,
+        startTimestamp,
+        duration: endTimestamp - startTimestamp,
+        endTimestamp,
+        error: new Error(
+          `Result for id ${id} not found (timeout of ${this._options.getResultTimeout}ms exceeded)`
+        ),
+      };
+    }
+
+    this.results = this.results.filter(r => r.id !== id);
+
+    return result;
   }
 }

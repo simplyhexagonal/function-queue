@@ -1,26 +1,30 @@
 import {
   FunctionQueue,
-  FunctionSyncQueue,
   QueueableFunction,
-  QueueableSyncFunction,
 } from './';
+
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 interface TheFnPayload {
   greeting: string;
 }
 
+const durations: number[] = [];
+
+const startTime = Date.now();
+
+const mockFn = (...args: any[]) => {
+  if ((/^(Hello|Hi|Hey)/).test(args[0])) {
+    durations.push(Date.now() - startTime);
+  }
+
+  console.log(...args);
+};
+
 const theFn: QueueableFunction<TheFnPayload, string> = async ({greeting}) => {
   const result = `${greeting.replace('e', 'e')} Async`;
 
-  console.log(result);
-
-  return result;
-};
-
-const theSyncFn: QueueableSyncFunction<TheFnPayload, string> = ({greeting}) => {
-  const result = `${greeting} Sync`;
-
-  console.log(result);
+  mockFn(result);
 
   return result;
 };
@@ -36,21 +40,22 @@ describe('Function Queue', () => {
 
     greetingPayloads.forEach(payload => fnQ.queuePayload(payload));
 
-    const durations: number[] = [];
-    const startTime = Date.now();
+    let lastId;
 
-    const {log} = console;
-    console.log = (...args) => {
-      if ((/^(Hello|Hi|Hey)/).test(args[0])) {
-        durations.push(Date.now() - startTime);
-      }
-      log(...args);
-    };
+    setTimeout(() => lastId = fnQ.queuePayload({greeting: 'Hey'}), 150);
 
-    setTimeout(() => fnQ.queuePayload({greeting: 'Hey'}), 150);
     fnQ.queuePayload({greeting: 0 as any as string});
 
-    const results = await fnQ.processQueue();
+    await fnQ.processQueue()
+
+    const results = fnQ.results;
+
+    console.log(results);
+    console.log(durations);
+
+    expect(durations[0]).toBeUndefined();
+
+    await sleep(700);
 
     console.log(results);
     console.log(durations);
@@ -61,34 +66,73 @@ describe('Function Queue', () => {
 
     expect(results[0].error).toBeUndefined();
     expect(results[2].error).not.toBeUndefined();
-
-    console.log = log;
+    expect(results[2].duration).toBeGreaterThanOrEqual(200); // 1 retrie with 100ms wait time
   });
 
-  it('can generate and process a queue for synchronous functions', () => {
-    const fnQ = new FunctionSyncQueue(theSyncFn);
 
-    greetingPayloads.forEach(payload => fnQ.queuePayload(payload));
+  it('can get results for a specific payload', async () => {
+    const fnQ = new FunctionQueue(theFn);
+  
+    const firstId = fnQ.queuePayload({greeting: 'Howdy'});
 
-    const durations: number[] = [];
-    const startTime = Date.now();
+    fnQ.processQueue();
 
-    const {log} = console;
-    console.log = (...args) => {
-      if ((/^(Hello|Hi|Hey)/).test(args[0])) {
-        durations.push(Date.now() - startTime);
+    const secondId = fnQ.queuePayload({greeting: 'Hola'});
+
+    fnQ.processQueue();
+
+    console.log(fnQ.results);
+
+    // this is meant to be out of order in order to 
+    // test the reliability of getResult function
+    const secondResult = await fnQ.getResult(secondId);
+    expect(fnQ.results.length).toBe(1);
+    const firstResult = await fnQ.getResult(firstId);
+    expect(fnQ.results.length).toBe(0);
+
+    console.log(fnQ.results);
+
+    expect(firstResult.error).toBeUndefined();
+    expect(secondResult.error).toBeUndefined();
+
+    expect(firstResult.result).toBe('Howdy Async');
+    expect(secondResult.result).toBe('Hola Async');
+
+    fnQ.queuePayload({greeting: 'Greetings'});
+    const lastId = fnQ.queuePayload({greeting: 'Last'});
+  
+    await fnQ.processQueue();
+
+    expect(fnQ.results.length).toBe(0);
+
+    await fnQ.getResult(lastId);
+
+    expect(fnQ.results.length).toBe(1);
+    expect(fnQ.results[0].result).toBe('Greetings Async');
+
+    console.log(fnQ.results);
+  });
+
+  it('can safely timeout', async () => {
+    const fnQ = new FunctionQueue(
+      async ({greeting}) => {
+        await sleep(100);
+        return theFn(greeting);
+      },
+      {
+        waitTimeBetweenRuns: 100,
+        getResultTimeout: 10,
       }
-      log(...args);
-    };
+    );
 
-    const results = fnQ.processQueue();
+    const lastId = fnQ.queuePayload({greeting: 'Heeellooo'});
 
-    console.log(results);
-    console.log(durations);
+    fnQ.processQueue();
 
-    expect(durations[0]).toBeGreaterThanOrEqual(100);
-    expect(durations[1]).toBeGreaterThanOrEqual(200);
+    const result = await fnQ.getResult(lastId);
 
-    console.log = log;
+    console.log(result);
+
+    expect((/timeout of 10ms/).test(result.error.message)).toBe(true);
   });
 });
