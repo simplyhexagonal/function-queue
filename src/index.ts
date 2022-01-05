@@ -44,7 +44,7 @@ const defaultOptions: FunctionQueueOptions = {
 
 const sleep = (ms: milliseconds) => new Promise(resolve => setTimeout(resolve, ms));
 
-export class FunctionQueue<O = {[k: string]: any}, R = void> {
+class FunctionQueue<O = {[k: string]: any}, R = void> {
   static version = version;
 
   private _fn: QueueableFunction<O, R>;
@@ -187,3 +187,5 @@ export class FunctionQueue<O = {[k: string]: any}, R = void> {
     return result;
   }
 }
+
+export default FunctionQueue;

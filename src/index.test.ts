@@ -1,5 +1,4 @@
-import {
-  FunctionQueue,
+import FunctionQueue, {
   QueueableFunction,
 } from './';
 
