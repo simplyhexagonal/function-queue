@@ -52,20 +52,30 @@ export class FunctionQueue<O = {[k: string]: any}, R = void> {
     this._queue.push(payload);
   }
 
-  private _tryFn = async (payload: O, retries: number = 0): Promise<R | any> => {
-    try {
-      await sleep(this._options.waitTimeBetweenRuns);
+  private _tryFn = async (payload: O): Promise<FunctionQueueResult<R>> => {
+    let retries = 0;
 
-      const result = await this._fn(payload);
+    let result;
 
-      return result;
-    } catch (error) {
-      if (retries < this._options.maxRetries) {
-        return await this._tryFn(payload, retries + 1);
+    while ((!result || (result as any).error) && retries <= this._options.maxRetries) {
+      retries++;
+
+      try {
+        await sleep(this._options.waitTimeBetweenRuns);
+
+        result = {
+          duration: 0,
+          result: await this._fn(payload),
+        };
+      } catch (error) {
+        result = {
+          duration: 0,
+          error,
+        };
       }
-
-      throw error;
     }
+
+    return result as FunctionQueueResult<R>;
   }
 
   public async processQueue(): Promise<FunctionQueueResult<R>[]> {
@@ -84,8 +94,8 @@ export class FunctionQueue<O = {[k: string]: any}, R = void> {
 
         results.push(
           {
+            ...result,
             duration: endTime - startTime,
-            result,
           }
         );
       } catch (error) {
@@ -125,20 +135,30 @@ export class FunctionSyncQueue<O = {[k: string]: any}, R = void> {
     this._queue.push(payload);
   }
 
-  private _tryFn = (payload: O, retries: number = 0): R | any => {
-    try {
-      syncSleep(this._options.waitTimeBetweenRuns);
+  private _tryFn = (payload: O): FunctionQueueResult<R> => {
+    let retries = 0;
 
-      const result = this._fn(payload);
+    let result;
 
-      return result;
-    } catch (error) {
-      if (retries < this._options.maxRetries) {
-        return this._tryFn(payload, retries + 1);
+    while ((!result || (result as any).error) && retries <= this._options.maxRetries) {
+      retries++;
+
+      try {
+        syncSleep(this._options.waitTimeBetweenRuns);
+
+        result = {
+          duration: 0,
+          result: this._fn(payload),
+        };
+      } catch (error) {
+        result = {
+          duration: 0,
+          error,
+        };
       }
-
-      return error;
     }
+
+    return result as FunctionQueueResult<R>;
   }
 
   public processQueue(): FunctionQueueResult<R>[] {
@@ -156,8 +176,8 @@ export class FunctionSyncQueue<O = {[k: string]: any}, R = void> {
         endTime = Date.now();
         results.push(
           {
+            ...result,
             duration: endTime - startTime,
-            result,
           }
         );
       } catch (error) {
